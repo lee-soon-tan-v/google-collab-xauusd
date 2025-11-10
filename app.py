@@ -1,5 +1,5 @@
 # -------------------------------------------------
-# XAUUSD MACD Web App – CANDLESTICK VERSION (Full with D/W timeframes)
+# XAUUSD MACD Web App – CANDLESTICK VERSION (Dynamic Lookback & All Timeframes)
 # -------------------------------------------------
 import streamlit as st
 import yfinance as yf
@@ -20,8 +20,23 @@ with col1:
         ["1h", "2h", "3h", "4h", "6h", "8h", "12h", "1D", "2D", "3D", "1W"],
         index=6
     )
+
+# Dynamically adjust the slider range and label based on timeframe
+if timeframe.endswith("h"):
+    label = "Lookback (hours)"
+    min_lookback, max_lookback, default = 24, 4000, 1000
+elif timeframe.endswith("D"):
+    label = "Lookback (days)"
+    min_lookback, max_lookback, default = 7, 1500, 365  # up to ~4 years
+elif timeframe.endswith("W"):
+    label = "Lookback (weeks)"
+    min_lookback, max_lookback, default = 4, 520, 104   # up to ~10 years
+else:
+    label = "Lookback (hours)"
+    min_lookback, max_lookback, default = 24, 4000, 1000
+
 with col2:
-    lookback_hours = st.slider("Lookback (hours)", 24, 4000, 1000, step=24)
+    lookback_value = st.slider(label, min_lookback, max_lookback, default, step=min_lookback)
 
 # Optional: Refresh button
 if st.button("🔄 Refresh Data"):
@@ -33,9 +48,9 @@ if st.button("🔄 Refresh Data"):
 def get_data(timeframe: str):
     """Fetch and resample XAUUSD (Gold Futures) data according to timeframe."""
     end = datetime.now()
-    start = end - timedelta(days=730)  # 2 years of data
+    start = end - timedelta(days=730)  # 2 years of data by default
 
-    # Choose source interval based on requested timeframe
+    # Choose base interval based on requested timeframe
     if timeframe.endswith("h"):       # hourly
         base_interval = "1h"
     elif timeframe.endswith("D"):     # daily
@@ -52,7 +67,7 @@ def get_data(timeframe: str):
 
     df.index = pd.to_datetime(df.index)
 
-    # Handle resampling for custom timeframes
+    # Handle custom resampling (e.g., 2h, 3h, 2D, etc.)
     if timeframe not in ["1h", "1D", "1W"]:
         rule = timeframe.replace("h", "H")
         df = df.resample(rule, label='right', closed='right').agg({
@@ -70,7 +85,6 @@ df = get_data(timeframe)
 if df is None:
     st.stop()
 
-
 # --- MACD Function ---
 def macd(series, fast=12, slow=26, signal=9):
     ema_fast = series.ewm(span=fast, adjust=False).mean()
@@ -80,7 +94,6 @@ def macd(series, fast=12, slow=26, signal=9):
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
 
-
 # --- Compute Indicators ---
 df['MACD'], df['Signal'], df['Histogram'] = macd(df['Close'])
 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
@@ -88,15 +101,11 @@ df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
 
 # --- Slice Lookback ---
 if timeframe.endswith("h"):
-    last_period = df.last(f'{lookback_hours}H')
+    last_period = df.last(f'{lookback_value}H')
 elif timeframe.endswith("D"):
-    # Convert hours to days (since 24h = 1 day)
-    lookback_days = lookback_hours / 24
-    last_period = df.last(f'{lookback_days}D')
+    last_period = df.last(f'{lookback_value}D')
 elif timeframe.endswith("W"):
-    # Convert hours to weeks (168h = 1 week)
-    lookback_weeks = lookback_hours / 168
-    last_period = df.last(f'{lookback_weeks}W')
+    last_period = df.last(f'{lookback_value}W')
 else:
     last_period = df
 
