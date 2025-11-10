@@ -127,10 +127,10 @@ fig.add_trace(go.Bar(
     opacity=0.8
 ), row=2, col=1)
 
-fig.add_hline(y=0, line_dash="dash", line_color="white", row=2, col=1)
+fig.add_hline(y=0, line_dash="dash", line_color="grey", row=2, col=1)
 
 fig.update_layout(height=700, hovermode='x unified', xaxis_rangeslider_visible=False,
-                  plot_bgcolor='#ffffff', paper_bgcolor='#ffffff', font_color='white')
+                  plot_bgcolor='#ffffff', paper_bgcolor='#ffffff', font_color='grey')
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Stats ---
