@@ -66,7 +66,7 @@ def get_data(tf, days_back):
     df['Close'] = df['Close'].ffill()
     df['Volume'] = df['Volume'].fillna(0)
 
-    return df.dropna(how='all')  # remove any full NaN rows at edges
+    return df.dropna(how='all')
 
 # --- Lookback ---
 if timeframe.endswith(("D", "W")):
@@ -90,5 +90,58 @@ def macd(series, fast=12, slow=26, signal=9):
 
 last_period['MACD'], last_period['Signal'], last_period['Histogram'] = macd(last_period['Close'])
 
-# --- Plot ---
-fig = make_sub
+# --- Plot --- FIXED LINE!
+fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
+    subplot_titles=(f'XAUUSD – {timeframe} Candlesticks + EMA', 'MACD (12,26,9)'),
+    row_heights=[0.7, 0.3]
+)
+
+# CANDLESTICKS
+fig.add_trace(go.Candlestick(
+    x=last_period.index,
+    open=last_period['Open'], high=last_period['High'],
+    low=last_period['Low'], close=last_period['Close'],
+    name="OHLC",
+    increasing_line_color='gold', decreasing_line_color='red',
+    increasing_fillcolor='gold', decreasing_fillcolor='red'
+), row=1, col=1)
+
+# EMA 50 & 26
+fig.add_trace(go.Scatter(x=last_period.index,
+                         y=last_period['Close'].ewm(span=50, adjust=False).mean(),
+                         name='50 EMA', line=dict(color='red', width=2)), row=1, col=1)
+fig.add_trace(go.Scatter(x=last_period.index,
+                         y=last_period['Close'].ewm(span=26, adjust=False).mean(),
+                         name='26 EMA', line=dict(color='orange', width=2)), row=1, col=1)
+
+# MACD LINES
+fig.add_trace(go.Scatter(x=last_period.index, y=last_period['MACD'], name='MACD', line=dict(color='#2962FF')), row=2, col=1)
+fig.add_trace(go.Scatter(x=last_period.index, y=last_period['Signal'], name='Signal', line=dict(color='#FF6D00')), row=2, col=1)
+
+# GREY HISTOGRAM
+fig.add_trace(go.Bar(
+    x=last_period.index,
+    y=last_period['Histogram'],
+    name='Histogram',
+    marker_color='lightgray',
+    opacity=0.7
+), row=2, col=1)
+
+fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
+
+fig.update_layout(
+    height=700,
+    hovermode='x unified',
+    xaxis_rangeslider_visible=False,
+    plot_bgcolor='white',
+    paper_bgcolor='white',
+    font_color='black'
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# --- Stats ---
+st.write(f"**Latest Close:** ${last_period['Close'].iloc[-1]:.2f} | "
+         f"**MACD:** {last_period['MACD'].iloc[-1]:.4f} | "
+         f"**Signal:** {last_period['Signal'].iloc[-1]:.4f}")
