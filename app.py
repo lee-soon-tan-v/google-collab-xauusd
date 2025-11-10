@@ -1,5 +1,5 @@
 # -------------------------------------------------
-# XAUUSD PRO – TradingView MACD Colors + All Timeframes
+# XAUUSD PRO – NO GAPS + GREY HISTOGRAM + All Timeframes
 # -------------------------------------------------
 import streamlit as st
 import yfinance as yf
@@ -9,7 +9,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="XAUUSD Pro", layout="wide")
-st.title("XAUUSD Pro – Candlesticks + TradingView MACD")
+st.title("XAUUSD Pro – Candlesticks + MACD (No Gaps)")
 
 # --- User Inputs ---
 col1, col2 = st.columns(2)
@@ -43,15 +43,30 @@ def get_data(tf, days_back):
         st.error("No data.")
         return None
 
+    # Resample
     if tf in ["2h", "3h", "6h", "8h", "12h", "2D", "3D"]:
         rule = tf.upper().replace("D", "H") if "D" in tf else tf.upper()
         df = df_raw.resample(rule).agg({
             'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-        }).dropna()
+        })
     else:
         df = df_raw
 
-    return df
+    # --- FILL MISSING DATES (NO GAPS) ---
+    freq = tf.upper().replace("D", "H") if "D" in tf else tf.upper()
+    if "W" in freq:
+        freq = "W"
+    full_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq=freq)
+    df = df.reindex(full_range)
+
+    # Fill OHLC
+    df['Open'] = df['Open'].ffill()
+    df['High'] = df['High'].ffill()
+    df['Low'] = df['Low'].ffill()
+    df['Close'] = df['Close'].ffill()
+    df['Volume'] = df['Volume'].fillna(0)
+
+    return df.dropna(how='all')  # remove any full NaN rows at edges
 
 # --- Lookback ---
 if timeframe.endswith(("D", "W")):
@@ -75,65 +90,5 @@ def macd(series, fast=12, slow=26, signal=9):
 
 last_period['MACD'], last_period['Signal'], last_period['Histogram'] = macd(last_period['Close'])
 
-# --- TRADINGVIEW MACD HISTOGRAM COLORS ---
-last_period['hist_color'] = 'gray'
-last_period['prev_hist'] = last_period['Histogram'].shift(1)
-
-mask1 = (last_period['Histogram'] > 0) & (last_period['Histogram'] > last_period['prev_hist'])
-mask2 = (last_period['Histogram'] > 0) & (last_period['Histogram'] < last_period['prev_hist'])
-mask3 = (last_period['Histogram'] < 0) & (last_period['Histogram'] < last_period['prev_hist'])
-mask4 = (last_period['Histogram'] < 0) & (last_period['Histogram'] > last_period['prev_hist'])
-
-last_period.loc[mask1, 'hist_color'] = '#26a69a'  # Dark Green
-last_period.loc[mask2, 'hist_color'] = '#4caf50'  # Light Green
-last_period.loc[mask3, 'hist_color'] = '#ef5350'  # Dark Red
-last_period.loc[mask4, 'hist_color'] = '#ff5252'  # Light Red
-
 # --- Plot ---
-fig = make_subplots(
-    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-    subplot_titles=(f'XAUUSD – {timeframe} Candlesticks + EMA', 'MACD (12,26,9)'),
-    row_heights=[0.7, 0.3]
-)
-
-# CANDLESTICKS
-fig.add_trace(go.Candlestick(
-    x=last_period.index,
-    open=last_period['Open'], high=last_period['High'],
-    low=last_period['Low'], close=last_period['Close'],
-    name="OHLC",
-    increasing_line_color='gold', decreasing_line_color='red',
-    increasing_fillcolor='gold', decreasing_fillcolor='red'
-), row=1, col=1)
-
-# EMA 50 & 26
-fig.add_trace(go.Scatter(x=last_period.index,
-                         y=last_period['Close'].ewm(span=50, adjust=False).mean(),
-                         name='50 EMA', line=dict(color='red', width=2)), row=1, col=1)
-fig.add_trace(go.Scatter(x=last_period.index,
-                         y=last_period['Close'].ewm(span=26, adjust=False).mean(),
-                         name='26 EMA', line=dict(color='orange', width=2)), row=1, col=1)
-
-# MACD LINES
-fig.add_trace(go.Scatter(x=last_period.index, y=last_period['MACD'], name='MACD', line=dict(color='#2962FF')), row=2, col=1)
-fig.add_trace(go.Scatter(x=last_period.index, y=last_period['Signal'], name='Signal', line=dict(color='#FF6D00')), row=2, col=1)
-
-# TRADINGVIEW HISTOGRAM
-fig.add_trace(go.Bar(
-    x=last_period.index,
-    y=last_period['Histogram'],
-    name='Histogram',
-    marker_color=last_period['hist_color'],
-    opacity=0.8
-), row=2, col=1)
-
-fig.add_hline(y=0, line_dash="dash", line_color="grey", row=2, col=1)
-
-fig.update_layout(height=700, hovermode='x unified', xaxis_rangeslider_visible=False,
-                  plot_bgcolor='#ffffff', paper_bgcolor='#ffffff', font_color='grey')
-st.plotly_chart(fig, use_container_width=True)
-
-# --- Stats ---
-st.write(f"**Latest Close:** ${last_period['Close'].iloc[-1]:.2f} | "
-         f"**MACD:** {last_period['MACD'].iloc[-1]:.4f} | "
-         f"**Signal:** {last_period['Signal'].iloc[-1]:.4f}")
+fig = make_sub
