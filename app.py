@@ -91,11 +91,11 @@ if timeframe.endswith("h"):
     last_period = df.last(f'{lookback_hours}H')
 elif timeframe.endswith("D"):
     # Convert hours to days (since 24h = 1 day)
-    lookback_days = lookback_hours // 24
+    lookback_days = lookback_hours / 24
     last_period = df.last(f'{lookback_days}D')
 elif timeframe.endswith("W"):
     # Convert hours to weeks (168h = 1 week)
-    lookback_weeks = lookback_hours // 168
+    lookback_weeks = lookback_hours / 168
     last_period = df.last(f'{lookback_weeks}W')
 else:
     last_period = df
