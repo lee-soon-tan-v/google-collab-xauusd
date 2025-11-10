@@ -1,5 +1,5 @@
 # -------------------------------------------------
-# XAUUSD MACD Web App – CANDLESTICK VERSION (Fixed)
+# XAUUSD MACD Web App – CANDLESTICK VERSION (Full with D/W timeframes)
 # -------------------------------------------------
 import streamlit as st
 import yfinance as yf
@@ -15,13 +15,13 @@ st.title("📈 Live XAUUSD Candlesticks with MACD & EMA")
 # --- User Inputs ---
 col1, col2 = st.columns(2)
 with col1:
-    hours = st.selectbox(
+    timeframe = st.selectbox(
         "Timeframe",
-        ["1h", "2h", "3h", "4h", "6h", "8h", "12h"],
-        index=5
+        ["1h", "2h", "3h", "4h", "6h", "8h", "12h", "1D", "2D", "3D", "1W"],
+        index=6
     )
 with col2:
-    lookback_hours = st.slider("Lookback (hours)", 24, 2000, 1000, step=24)
+    lookback_hours = st.slider("Lookback (hours)", 24, 4000, 1000, step=24)
 
 # Optional: Refresh button
 if st.button("🔄 Refresh Data"):
@@ -30,33 +30,43 @@ if st.button("🔄 Refresh Data"):
 
 # --- Fetch & Resample ---
 @st.cache_data(ttl=300)
-def get_data(hours: str):
-    """Fetch 1h gold futures and resample to desired timeframe."""
+def get_data(timeframe: str):
+    """Fetch and resample XAUUSD (Gold Futures) data according to timeframe."""
     end = datetime.now()
-    start = end - timedelta(days=365)
+    start = end - timedelta(days=730)  # 2 years of data
 
-    df_1h = yf.Ticker("GC=F").history(start=start, end=end, interval="1h")
-    if df_1h.empty:
-        st.error("No data. Check connection.")
+    # Choose source interval based on requested timeframe
+    if timeframe.endswith("h"):       # hourly
+        base_interval = "1h"
+    elif timeframe.endswith("D"):     # daily
+        base_interval = "1d"
+    elif timeframe.endswith("W"):     # weekly
+        base_interval = "1wk"
+    else:
+        base_interval = "1h"
+
+    df = yf.Ticker("GC=F").history(start=start, end=end, interval=base_interval)
+    if df.empty:
+        st.error("No data. Check connection or timeframe.")
         return None
 
-    df_1h.index = pd.to_datetime(df_1h.index)
+    df.index = pd.to_datetime(df.index)
 
-    # Convert '1h' -> '1H'
-    rule = hours.replace("h", "H")
-
-    df = df_1h.resample(rule, label='right', closed='right').agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum'
-    }).dropna()
+    # Handle resampling for custom timeframes
+    if timeframe not in ["1h", "1D", "1W"]:
+        rule = timeframe.replace("h", "H")
+        df = df.resample(rule, label='right', closed='right').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }).dropna()
 
     return df
 
 
-df = get_data(hours)
+df = get_data(timeframe)
 if df is None:
     st.stop()
 
@@ -82,7 +92,7 @@ last_period = df.last(f'{lookback_hours}H')
 # --- Plot ---
 fig = make_subplots(
     rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-    subplot_titles=(f'XAUUSD – {hours.upper()} Candlesticks + EMA', 'MACD (12,26,9)'),
+    subplot_titles=(f'XAUUSD – {timeframe.upper()} Candlesticks + EMA', 'MACD (12,26,9)'),
     row_heights=[0.7, 0.3]
 )
 
@@ -101,43 +111,31 @@ fig.add_trace(go.Candlestick(
     showlegend=False
 ), row=1, col=1)
 
-# 26 EMA
+# EMAs
 fig.add_trace(go.Scatter(
-    x=last_period.index,
-    y=last_period['EMA26'],
-    name='EMA 26',
+    x=last_period.index, y=last_period['EMA26'], name='EMA 26',
     line=dict(color='orange', width=2)
 ), row=1, col=1)
 
-# 50 EMA
 fig.add_trace(go.Scatter(
-    x=last_period.index,
-    y=last_period['EMA50'],
-    name='EMA 50',
+    x=last_period.index, y=last_period['EMA50'], name='EMA 50',
     line=dict(color='red', width=2)
 ), row=1, col=1)
 
 # MACD Panel
 fig.add_trace(go.Scatter(
-    x=last_period.index,
-    y=last_period['MACD'],
-    name='MACD',
+    x=last_period.index, y=last_period['MACD'], name='MACD',
     line=dict(color='blue')
 ), row=2, col=1)
 
 fig.add_trace(go.Scatter(
-    x=last_period.index,
-    y=last_period['Signal'],
-    name='Signal',
+    x=last_period.index, y=last_period['Signal'], name='Signal',
     line=dict(color='orange')
 ), row=2, col=1)
 
 fig.add_trace(go.Bar(
-    x=last_period.index,
-    y=last_period['Histogram'],
-    name='Histogram',
-    marker_color='gray',
-    opacity=0.6
+    x=last_period.index, y=last_period['Histogram'], name='Histogram',
+    marker_color='gray', opacity=0.6
 ), row=2, col=1)
 
 fig.add_hline(y=0, line_dash="dash", line_color="black", row=2, col=1)
