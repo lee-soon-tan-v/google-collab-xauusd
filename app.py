@@ -1,5 +1,5 @@
 # -------------------------------------------------
-# XAUUSD MACD Web App – CANDLESTICK VERSION
+# XAUUSD MACD Web App – CANDLESTICK VERSION (Fixed)
 # -------------------------------------------------
 import streamlit as st
 import yfinance as yf
@@ -8,35 +8,60 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
+# --- Page setup ---
 st.set_page_config(page_title="XAUUSD Candles", layout="wide")
-st.title("Live XAUUSD Candlesticks with MACD & EMA")
+st.title("📈 Live XAUUSD Candlesticks with MACD & EMA")
 
 # --- User Inputs ---
 col1, col2 = st.columns(2)
 with col1:
-    hours = st.selectbox("Timeframe", ["1h", "2h", "3h", "4h", "6h", "8h", "12h"], index=5)
+    hours = st.selectbox(
+        "Timeframe",
+        ["1h", "2h", "3h", "4h", "6h", "8h", "12h"],
+        index=5
+    )
 with col2:
     lookback_hours = st.slider("Lookback (hours)", 24, 2000, 1000, step=24)
 
+# Optional: Refresh button
+if st.button("🔄 Refresh Data"):
+    st.cache_data.clear()
+
+
 # --- Fetch & Resample ---
 @st.cache_data(ttl=300)
-def get_data():
+def get_data(hours: str):
+    """Fetch 1h gold futures and resample to desired timeframe."""
     end = datetime.now()
     start = end - timedelta(days=365)
+
     df_1h = yf.Ticker("GC=F").history(start=start, end=end, interval="1h")
     if df_1h.empty:
         st.error("No data. Check connection.")
         return None
-    df = df_1h.resample(hours.upper()).agg({
-        'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+
+    df_1h.index = pd.to_datetime(df_1h.index)
+
+    # Convert '1h' -> '1H'
+    rule = hours.replace("h", "H")
+
+    df = df_1h.resample(rule, label='right', closed='right').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
     }).dropna()
+
     return df
 
-df = get_data()
+
+df = get_data(hours)
 if df is None:
     st.stop()
 
-# --- MACD ---
+
+# --- MACD Function ---
 def macd(series, fast=12, slow=26, signal=9):
     ema_fast = series.ewm(span=fast, adjust=False).mean()
     ema_slow = series.ewm(span=slow, adjust=False).mean()
@@ -45,19 +70,23 @@ def macd(series, fast=12, slow=26, signal=9):
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
 
-df['MACD'], df['Signal'], df['Histogram'] = macd(df['Close'])
 
-# --- Slice ---
+# --- Compute Indicators ---
+df['MACD'], df['Signal'], df['Histogram'] = macd(df['Close'])
+df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
+df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+
+# --- Slice Lookback ---
 last_period = df.last(f'{lookback_hours}H')
 
-# --- Plot: Candlesticks + EMA + MACD ---
+# --- Plot ---
 fig = make_subplots(
     rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
     subplot_titles=(f'XAUUSD – {hours.upper()} Candlesticks + EMA', 'MACD (12,26,9)'),
     row_heights=[0.7, 0.3]
 )
 
-# CANDLESTICKS
+# Candlesticks
 fig.add_trace(go.Candlestick(
     x=last_period.index,
     open=last_period['Open'],
@@ -65,35 +94,66 @@ fig.add_trace(go.Candlestick(
     low=last_period['Low'],
     close=last_period['Close'],
     name="OHLC",
-    increasing_line_color='gold', decreasing_line_color='red',
-    increasing_fillcolor='gold', decreasing_fillcolor='red',
+    increasing_line_color='gold',
+    decreasing_line_color='red',
+    increasing_fillcolor='gold',
+    decreasing_fillcolor='red',
     showlegend=False
 ), row=1, col=1)
 
-# 50 EMA (on Close)
+# 26 EMA
 fig.add_trace(go.Scatter(
     x=last_period.index,
-    y=last_period['Close'].ewm(span=50, adjust=False).mean(),
-    name='50 EMA', line=dict(color='red', width=2)
+    y=last_period['EMA26'],
+    name='EMA 26',
+    line=dict(color='orange', width=2)
 ), row=1, col=1)
 
-# 26 EMA (on Close)
+# 50 EMA
 fig.add_trace(go.Scatter(
     x=last_period.index,
-    y=last_period['Close'].ewm(span=26, adjust=False).mean(),
-    name='26 EMA', line=dict(color='orange', width=2)
+    y=last_period['EMA50'],
+    name='EMA 50',
+    line=dict(color='red', width=2)
 ), row=1, col=1)
 
 # MACD Panel
-fig.add_trace(go.Scatter(x=last_period.index, y=last_period['MACD'], name='MACD', line=dict(color='blue')), row=2, col=1)
-fig.add_trace(go.Scatter(x=last_period.index, y=last_period['Signal'], name='Signal', line=dict(color='orange')), row=2, col=1)
-fig.add_trace(go.Bar(x=last_period.index, y=last_period['Histogram'], name='Histogram', marker_color='gray', opacity=0.6), row=2, col=1)
+fig.add_trace(go.Scatter(
+    x=last_period.index,
+    y=last_period['MACD'],
+    name='MACD',
+    line=dict(color='blue')
+), row=2, col=1)
+
+fig.add_trace(go.Scatter(
+    x=last_period.index,
+    y=last_period['Signal'],
+    name='Signal',
+    line=dict(color='orange')
+), row=2, col=1)
+
+fig.add_trace(go.Bar(
+    x=last_period.index,
+    y=last_period['Histogram'],
+    name='Histogram',
+    marker_color='gray',
+    opacity=0.6
+), row=2, col=1)
+
 fig.add_hline(y=0, line_dash="dash", line_color="black", row=2, col=1)
 
-fig.update_layout(height=700, hovermode='x unified', xaxis_rangeslider_visible=False)
+fig.update_layout(
+    height=700,
+    hovermode='x unified',
+    xaxis_rangeslider_visible=False,
+    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+)
+
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Stats ---
 st.write(f"**Latest Close:** ${last_period['Close'].iloc[-1]:.2f} | "
          f"**MACD:** {last_period['MACD'].iloc[-1]:.4f} | "
          f"**Signal:** {last_period['Signal'].iloc[-1]:.4f}")
+
+st.caption(f"Data last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
