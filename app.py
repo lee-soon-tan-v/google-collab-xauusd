@@ -1,6 +1,3 @@
-# -------------------------------------------------
-# XAUUSD MACD Web App – CANDLESTICK VERSION (Dynamic Lookback & All Timeframes)
-# -------------------------------------------------
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -9,8 +6,32 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # --- Page setup ---
-st.set_page_config(page_title="XAUUSD Candles", layout="wide")
-st.title("📈 Live XAUUSD Candlesticks with MACD & EMA")
+st.set_page_config(page_title="Precious Metals Candles", layout="wide")
+st.title("📈 Live Precious Metals – Candlesticks + EMA + MACD")
+
+# --- Asset Selection ---
+asset = st.selectbox(
+    "Select Metal",
+    options=["Gold (XAUUSD)", "Silver"],
+    index=0,
+    help="Gold uses GC=F (futures), Silver uses SI=F (futures) from Yahoo Finance"
+)
+
+# Map selection to ticker and friendly name
+if asset == "Gold (XAUUSD)":
+    ticker_symbol = "GC=F"
+    display_name = "Gold (XAUUSD)"
+    candle_up_color = 'gold'
+    candle_down_color = 'red'
+    ema26_color = 'orange'
+    ema50_color = 'red'
+else:
+    ticker_symbol = "SI=F"
+    display_name = "Silver"
+    candle_up_color = '#C0C0C0'     # silver-ish
+    candle_down_color = '#A52A2A'   # darker red for contrast
+    ema26_color = '#B8860B'         # darker goldenrod
+    ema50_color = '#8B0000'         # dark red
 
 # --- User Inputs ---
 col1, col2 = st.columns(2)
@@ -21,16 +42,16 @@ with col1:
         index=6
     )
 
-# Dynamically adjust the slider range and label based on timeframe
+# Dynamically adjust slider range/label
 if timeframe.endswith("h"):
     label = "Lookback (hours)"
     min_lookback, max_lookback, default = 24, 4000, 1000
 elif timeframe.endswith("D"):
     label = "Lookback (days)"
-    min_lookback, max_lookback, default = 7, 1500, 365  # up to ~4 years
+    min_lookback, max_lookback, default = 7, 1500, 365
 elif timeframe.endswith("W"):
     label = "Lookback (weeks)"
-    min_lookback, max_lookback, default = 4, 520, 104   # up to ~10 years
+    min_lookback, max_lookback, default = 4, 520, 104
 else:
     label = "Lookback (hours)"
     min_lookback, max_lookback, default = 24, 4000, 1000
@@ -38,36 +59,36 @@ else:
 with col2:
     lookback_value = st.slider(label, min_lookback, max_lookback, default, step=min_lookback)
 
-# Optional: Refresh button
+# Refresh
 if st.button("🔄 Refresh Data"):
     st.cache_data.clear()
 
-
 # --- Fetch & Resample ---
 @st.cache_data(ttl=300)
-def get_data(timeframe: str):
-    """Fetch and resample XAUUSD (Gold Futures) data according to timeframe."""
+def get_data(ticker: str, timeframe: str):
+    """Fetch and resample data for the selected ticker."""
     end = datetime.now()
-    start = end - timedelta(days=730)  # 2 years of data by default
+    start = end - timedelta(days=730)  # 2 years default fetch
 
-    # Choose base interval based on requested timeframe
-    if timeframe.endswith("h"):       # hourly
+    # Base interval
+    if timeframe.endswith("h"):
         base_interval = "1h"
-    elif timeframe.endswith("D"):     # daily
+    elif timeframe.endswith("D"):
         base_interval = "1d"
-    elif timeframe.endswith("W"):     # weekly
+    elif timeframe.endswith("W"):
         base_interval = "1wk"
     else:
         base_interval = "1h"
 
-    df = yf.Ticker("GC=F").history(start=start, end=end, interval=base_interval)
+    df = yf.Ticker(ticker).history(start=start, end=end, interval=base_interval)
+
     if df.empty:
-        st.error("No data. Check connection or timeframe.")
+        st.error(f"No data returned for {ticker}. Check connection or try a different timeframe.")
         return None
 
     df.index = pd.to_datetime(df.index)
 
-    # Handle custom resampling (e.g., 2h, 3h, 2D, etc.)
+    # Custom resampling for non-standard intervals
     if timeframe not in ["1h", "1D", "1W"]:
         rule = timeframe.replace("h", "H")
         df = df.resample(rule, label='right', closed='right').agg({
@@ -80,8 +101,7 @@ def get_data(timeframe: str):
 
     return df
 
-
-df = get_data(timeframe)
+df = get_data(ticker_symbol, timeframe)
 if df is None:
     st.stop()
 
@@ -112,7 +132,7 @@ else:
 # --- Plot ---
 fig = make_subplots(
     rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-    subplot_titles=(f'XAUUSD – {timeframe.upper()} Candlesticks + EMA', 'MACD (12,26,9)'),
+    subplot_titles=(f'{display_name} – {timeframe.upper()} Candlesticks + EMA', 'MACD (12,26,9)'),
     row_heights=[0.7, 0.3]
 )
 
@@ -124,22 +144,21 @@ fig.add_trace(go.Candlestick(
     low=last_period['Low'],
     close=last_period['Close'],
     name="OHLC",
-    increasing_line_color='gold',
-    decreasing_line_color='red',
-    increasing_fillcolor='gold',
-    decreasing_fillcolor='red',
+    increasing_line_color=candle_up_color,
+    decreasing_line_color=candle_down_color,
+    increasing_fillcolor=candle_up_color,
+    decreasing_fillcolor=candle_down_color,
     showlegend=False
 ), row=1, col=1)
 
 # EMAs
 fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['EMA26'], name='EMA 26',
-    line=dict(color='orange', width=2)
+    line=dict(color=ema26_color, width=2)
 ), row=1, col=1)
-
 fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['EMA50'], name='EMA 50',
-    line=dict(color='red', width=2)
+    line=dict(color=ema50_color, width=2)
 ), row=1, col=1)
 
 # MACD Panel
@@ -147,12 +166,10 @@ fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['MACD'], name='MACD',
     line=dict(color='blue')
 ), row=2, col=1)
-
 fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['Signal'], name='Signal',
     line=dict(color='orange')
 ), row=2, col=1)
-
 fig.add_trace(go.Bar(
     x=last_period.index, y=last_period['Histogram'], name='Histogram',
     marker_color='gray', opacity=0.6
@@ -170,8 +187,9 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Stats ---
-st.write(f"**Latest Close:** ${last_period['Close'].iloc[-1]:.2f} | "
+latest_close = last_period['Close'].iloc[-1]
+st.write(f"**Latest Close:** ${latest_close:.2f} | "
          f"**MACD:** {last_period['MACD'].iloc[-1]:.4f} | "
          f"**Signal:** {last_period['Signal'].iloc[-1]:.4f}")
 
-st.caption(f"Data last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"Data last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} • Source: Yahoo Finance ({ticker_symbol})")
