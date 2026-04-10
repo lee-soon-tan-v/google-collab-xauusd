@@ -28,17 +28,21 @@ if asset == "Gold (XAUUSD)":
 else:
     ticker_symbol = "SI=F"
     display_name = "Silver"
-    candle_up_color = '#C0C0C0'     # silver-ish
-    candle_down_color = '#A52A2A'   # darker red for contrast
-    ema26_color = '#B8860B'         # darker goldenrod
-    ema50_color = '#8B0000'         # dark red
+    candle_up_color = '#C0C0C0'
+    candle_down_color = '#A52A2A'
+    ema26_color = '#B8860B'
+    ema50_color = '#8B0000'
 
 # --- User Inputs ---
 col1, col2 = st.columns(2)
+
 with col1:
     timeframe = st.selectbox(
         "Timeframe",
-        ["1h", "2h", "3h", "4h", "6h", "8h", "12h", "1D", "2D", "3D", "1W"],
+        ["1h", "2h", "3h", "4h", "6h", "8h", "12h", 
+         "1D", "2D", "3D", 
+         "1W", "2W", "3W", 
+         "1M", "2M", "3M"],
         index=6
     )
 
@@ -52,6 +56,9 @@ elif timeframe.endswith("D"):
 elif timeframe.endswith("W"):
     label = "Lookback (weeks)"
     min_lookback, max_lookback, default = 4, 520, 104
+elif timeframe.endswith("M"):
+    label = "Lookback (months)"
+    min_lookback, max_lookback, default = 1, 60, 12
 else:
     label = "Lookback (hours)"
     min_lookback, max_lookback, default = 24, 4000, 1000
@@ -59,7 +66,7 @@ else:
 with col2:
     lookback_value = st.slider(label, min_lookback, max_lookback, default, step=min_lookback)
 
-# Refresh
+# Refresh button
 if st.button("🔄 Refresh Data"):
     st.cache_data.clear()
 
@@ -68,29 +75,24 @@ if st.button("🔄 Refresh Data"):
 def get_data(ticker: str, timeframe: str):
     """Fetch and resample data for the selected ticker."""
     end = datetime.now()
-    start = end - timedelta(days=730)  # 2 years default fetch
+    start = end - timedelta(days=730)  # ~2 years
 
-    # Base interval
+    # Base interval for yfinance
     if timeframe.endswith("h"):
         base_interval = "1h"
-    elif timeframe.endswith("D"):
-        base_interval = "1d"
-    elif timeframe.endswith("W"):
-        base_interval = "1wk"
     else:
-        base_interval = "1h"
+        base_interval = "1d"   # daily is sufficient for D, W, M
 
     df = yf.Ticker(ticker).history(start=start, end=end, interval=base_interval)
-
     if df.empty:
-        st.error(f"No data returned for {ticker}. Check connection or try a different timeframe.")
+        st.error(f"No data returned for {ticker}. Check your internet connection.")
         return None
 
     df.index = pd.to_datetime(df.index)
 
     # Custom resampling for non-standard intervals
-    if timeframe not in ["1h", "1D", "1W"]:
-        rule = timeframe.replace("h", "H")
+    if timeframe not in ["1h", "1D", "1W", "1M"]:
+        rule = timeframe.lower()          # e.g. "2W" → "2w", "3M" → "3m"
         df = df.resample(rule, label='right', closed='right').agg({
             'Open': 'first',
             'High': 'max',
@@ -100,6 +102,7 @@ def get_data(ticker: str, timeframe: str):
         }).dropna()
 
     return df
+
 
 df = get_data(ticker_symbol, timeframe)
 if df is None:
@@ -119,13 +122,15 @@ df['MACD'], df['Signal'], df['Histogram'] = macd(df['Close'])
 df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
 df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
 
-# --- Slice Lookback ---
+# --- Slice Lookback (Fixed for all frequencies) ---
 if timeframe.endswith("h"):
-    last_period = df.last(f'{lookback_value}H')
+    last_period = df.last(f'{lookback_value}h')
 elif timeframe.endswith("D"):
     last_period = df.last(f'{lookback_value}D')
 elif timeframe.endswith("W"):
     last_period = df.last(f'{lookback_value}W')
+elif timeframe.endswith("M"):
+    last_period = df.last(f'{lookback_value}M')
 else:
     last_period = df
 
@@ -156,6 +161,7 @@ fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['EMA26'], name='EMA 26',
     line=dict(color=ema26_color, width=2)
 ), row=1, col=1)
+
 fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['EMA50'], name='EMA 50',
     line=dict(color=ema50_color, width=2)
@@ -166,10 +172,12 @@ fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['MACD'], name='MACD',
     line=dict(color='blue')
 ), row=2, col=1)
+
 fig.add_trace(go.Scatter(
     x=last_period.index, y=last_period['Signal'], name='Signal',
     line=dict(color='orange')
 ), row=2, col=1)
+
 fig.add_trace(go.Bar(
     x=last_period.index, y=last_period['Histogram'], name='Histogram',
     marker_color='gray', opacity=0.6
