@@ -199,11 +199,16 @@ fig.add_trace(go.Scatter(
     line=dict(color="orange")
 ), row=2, col=1)
 
+hist = last_period["Histogram"]
+
+colors = ["green" if h >= 0 else "red" for h in hist]
+
 fig.add_trace(go.Bar(
     x=last_period.index,
-    y=last_period["Histogram"],
+    y=hist,
     name="Histogram",
-    opacity=0.5
+    marker_color=colors,
+    opacity=0.6
 ), row=2, col=1)
 
 fig.add_hline(y=0, line_dash="dash", row=2, col=1)
